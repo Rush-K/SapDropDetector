@@ -19,14 +19,21 @@ import org.opencv.android.CameraBridgeViewBase;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.core.Mat;
+import org.opencv.core.MatOfPoint;
+import org.opencv.core.Point;
+import org.opencv.core.Rect;
+import org.opencv.core.Scalar;
+import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 import org.opencv.video.BackgroundSubtractorMOG2;
 import org.opencv.video.Video;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 import static android.Manifest.permission.CAMERA;
+import static org.opencv.imgproc.Imgproc.rectangle;
 
 
 public class MainActivity extends AppCompatActivity
@@ -36,13 +43,11 @@ public class MainActivity extends AppCompatActivity
     private Mat matInput;
     private Mat matProcessing;
     private Mat matResult;
+    private Mat hierarchy;
     private BackgroundSubtractorMOG2 mog2;
+    private List<MatOfPoint> contours;
 
     private CameraBridgeViewBase mOpenCvCameraView;
-
-    public native void ConvertRGBtoGray(long matAddrInput, long matAddrResult); // 흑백 영상
-    public native void CannyEdgeDectection(long matAddrInput, long matAddrResult); // 윤곽선 영상
-    public native void BackgroundSubtraction(long matAddrInput, long matAddrResult);
 
     static {
         System.loadLibrary("opencv_java4");
@@ -115,7 +120,8 @@ public class MainActivity extends AppCompatActivity
 
     @Override
     public void onCameraViewStarted(int width, int height) {
-        mog2 = Video.createBackgroundSubtractorMOG2();
+        //mog2 = Video.createBackgroundSubtractorMOG2();
+        contours = new ArrayList<MatOfPoint>();
     }
 
     @Override
@@ -127,17 +133,42 @@ public class MainActivity extends AppCompatActivity
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
 
         matInput = inputFrame.rgba();
-        if ( matResult == null ) {
-            matProcessing = new Mat(matInput.rows(), matInput.cols(), matInput.type());
-            matResult = new Mat(matInput.rows(), matInput.cols(), matInput.type());
-        }
+        matProcessing = new Mat(matInput.rows(), matInput.cols(), matInput.type());
+        matResult = new Mat(matInput.rows(), matInput.cols(), matInput.type());
+        hierarchy = new Mat();
 
-        Imgproc.cvtColor(matInput, matProcessing, Imgproc.COLOR_RGBA2RGB);
-        mog2.apply(matProcessing, matResult);
-        Imgproc.cvtColor(matResult, matInput, Imgproc.COLOR_GRAY2RGBA);
+        /* background Subtraction Experiment */
+        //Imgproc.cvtColor(matInput, matProcessing, Imgproc.COLOR_RGBA2RGB);
+        //mog2.apply(matProcessing, matResult);
+        //Imgproc.cvtColor(matResult, matInput, Imgproc.COLOR_GRAY2RGBA);
+        /**/
+
         //ConvertRGBtoGray(matInput.getNativeObjAddr(), matResult.getNativeObjAddr());
         //CannyEdgeDectection(matInput.getNativeObjAddr(), matResult.getNativeObjAddr());
         //BackgroundSubtraction(matInput.getNativeObjAddr(), matResult.getNativeObjAddr());
+
+        // 흑백
+        Imgproc.cvtColor(matInput, matProcessing, Imgproc.COLOR_BGR2GRAY);
+
+        // 윤곽선 가공 : 모폴로지 연산 : dialate
+        Imgproc.dilate(matResult, matResult, Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(3, 3)));
+
+        // 잡영 제거
+        Imgproc.adaptiveThreshold(matProcessing, matResult, 255, Imgproc.ADAPTIVE_THRESH_MEAN_C, Imgproc.THRESH_BINARY_INV, 3, 12);  //block size 3
+
+        // contours 찾기
+        Imgproc.findContours(matResult, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE, new Point(0, 0));
+        if(contours.size()>0) {
+            for (int idx = 0; idx < contours.size(); idx++) {
+                Rect rect = Imgproc.boundingRect(contours.get(idx));
+                if ((rect.height < 100 && rect.width < 100) && (rect.height > 99 && rect.width > 99)) {
+                    rectangle(matInput, new Point(rect.br().x - rect.width, rect.br().y - rect.height)
+                            , rect.br()
+                            , new Scalar(0, 255, 0), 5);
+                }
+
+            }
+        }
         return matResult;
     }
 
